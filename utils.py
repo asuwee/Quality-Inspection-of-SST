@@ -1,14 +1,10 @@
-import time
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
+import math
 
-import csv
-import matplotlib.pyplot as plt
-from utils import *
-
-def cal_score33(y, y_hat):
+def cal_score2(y, y_hat):
     TN = 0  # real = 0, hat = 0
     FN = 0  # real = 1, hat = 0
     FP = 0  # real = 0, hat = 1
@@ -25,95 +21,84 @@ def cal_score33(y, y_hat):
             TP += 1
     return TN, FN, FP, TP
 
-def cal_score2(y_P_num, y_N_num, y_P_hat, y_N_hat, N_th_acc):
+def cal_score(y_N_hat, y_P_hat, N_th_Recall, reverse=False):
     '''
-        y_P_num 样本标签为阳性的数量
-        y_N_num 样本标签为阴性的数量
-        y_P_hat 标签为阳性的样本的预测值
         y_N_hat 标签为阴性的样本的预测值
-        N_th_acc 标签为阴性的样本的精度
+        y_P_hat 标签为阳性的样本的预测值
+        N_th_Recall 标签为阴性的样本的回召率
         return1 剔除异常值后, 标签为阴性的样本与剔除前的比例
         return2 剔除异常值后, 标签为阳性的样本与剔除前的比例
         return3 实际阈值 > 该值的都被剔除了
     '''
-    # 样本从小到大排序
-    y_P_hat.sort()
-    y_N_hat.sort()
-    # 剔除数据
-    y_P_del = []
-    y_N_del = []
-    while True:        
-        if len(y_P_hat) == 0 or len(y_N_hat) == 0:
-            break
-        # 抽样最大的结果
-        max_y_P_hat = y_P_hat[-1]
-        max_y_N_hat = y_N_hat[-1]
-        # 比较结果
-        if max_y_P_hat > max_y_N_hat:
-            # 阳性比阴性大，去除阳性结果
-            y_P_del.append(y_P_hat.pop())
-        if max_y_P_hat < max_y_N_hat:
-            # 阴性比阳性大，去除阴性结果
-            if (len(y_N_hat)-1) / y_N_num < N_th_acc:
-                # 保留99%的有效数据
+    y_N_num = len(y_N_hat)
+    y_P_num = len(y_P_hat)
+    del_data = []
+    if reverse:
+        # 样本从大到小排序
+        y_N_hat.sort(reverse=reverse)
+        y_P_hat.sort(reverse=reverse)  
+        # 剔除数据
+        while True:        
+            if len(y_P_hat) == 0 or len(y_N_hat) == 0:
                 break
-            else:
-                y_N_del.append(y_N_hat.pop())
-        if max_y_P_hat == max_y_N_hat:
-            # 一样大
-            if (len(y_N_hat)-1) / y_N_num < N_th_acc:
-                # 保留99%的有效数据
+            # 抽样最小的结果
+            max_y_N_hat = y_N_hat[-1]
+            max_y_P_hat = y_P_hat[-1]
+            # 比较结果
+            if max_y_P_hat < max_y_N_hat:
+                # 阳性比阴性小，去除阳性结果
+                # y_P_hat.pop()
+                del_data.append(y_P_hat.pop())
+            if max_y_P_hat > max_y_N_hat:
+                # 阳性比阴性大，去除阴性结果
+                if (len(y_N_hat)-1) / y_N_num < N_th_Recall:
+                    # 保留99%的有效数据
+                    break
+                else:
+                    # y_N_hat.pop()
+                    del_data.append(y_N_hat.pop())
+            if max_y_P_hat == max_y_N_hat:
+                # 一样大
+                if (len(y_N_hat)-1) / y_N_num < N_th_Recall:
+                    # 保留99%的有效数据
+                    break
+                else:
+                    # y_N_hat.pop()
+                    # y_P_hat.pop()
+                    del_data.append(y_N_hat.pop())
+                    del_data.append(y_P_hat.pop())
+        return len(y_N_hat)/y_N_num, (y_P_num - len(y_P_hat))/y_P_num, min(y_N_hat)
+    else:
+        # 样本从小到大排序
+        y_N_hat.sort()
+        y_P_hat.sort()
+        # 剔除数据
+        while True:        
+            if len(y_P_hat) == 0 or len(y_N_hat) == 0:
                 break
-            else:
-                y_P_del.append(y_P_hat.pop())
-                y_N_del.append(y_N_hat.pop())
-    
-    return len(y_N_hat)/y_N_num, (y_P_num - len(y_P_hat))/y_P_num, max(y_N_hat)
-
-def cal_score(y_P_num, y_N_num, y_P_hat, y_N_hat, N_th_acc):
-    '''
-        y_P_num 样本标签为阳性的数量
-        y_N_num 样本标签为阴性的数量
-        y_P_hat 标签为阳性的样本的预测值
-        y_N_hat 标签为阴性的样本的预测值
-        N_th_acc 标签为阴性的样本的精度
-        return1 剔除异常值后, 标签为阴性的样本与剔除前的比例
-        return2 剔除异常值后, 标签为阳性的样本与剔除前的比例
-        return3 实际阈值 > 该值的都被剔除了
-    '''
-    # 样本从小到大排序
-    y_P_hat.sort()
-    y_N_hat.sort()
-    # 剔除数据
-    y_P_del = []
-    y_N_del = []
-    while True:        
-        if len(y_P_hat) == 0 or len(y_N_hat) == 0:
-            break
-        # 抽样最大的结果
-        max_y_P_hat = y_P_hat[-1]
-        max_y_N_hat = y_N_hat[-1]
-        # 比较结果
-        if max_y_P_hat > max_y_N_hat:
-            # 阳性比阴性大，去除阳性结果
-            y_P_del.append(y_P_hat.pop())
-        if max_y_P_hat < max_y_N_hat:
-            # 阴性比阳性大，去除阴性结果
-            if (len(y_N_hat)-1) / y_N_num < N_th_acc:
-                # 保留99%的有效数据
-                break
-            else:
-                y_N_del.append(y_N_hat.pop())
-        if max_y_P_hat == max_y_N_hat:
-            # 一样大
-            if (len(y_N_hat)-1) / y_N_num < N_th_acc:
-                # 保留99%的有效数据
-                break
-            else:
-                y_P_del.append(y_P_hat.pop())
-                y_N_del.append(y_N_hat.pop())
-    
-    return len(y_N_hat)/y_N_num, (y_P_num - len(y_P_hat))/y_P_num, max(y_N_hat)
+            # 抽样最大的结果
+            max_y_N_hat = y_N_hat[-1]
+            max_y_P_hat = y_P_hat[-1]
+            # 比较结果
+            if max_y_P_hat > max_y_N_hat:
+                # 阳性比阴性大，去除阳性结果
+                y_P_hat.pop()
+            if max_y_P_hat < max_y_N_hat:
+                # 阴性比阳性大，去除阴性结果
+                if (len(y_N_hat)-1) / y_N_num < N_th_Recall:
+                    # 保留99%的有效数据
+                    break
+                else:
+                    y_N_hat.pop()
+            if max_y_P_hat == max_y_N_hat:
+                # 一样大
+                if (len(y_N_hat)-1) / y_N_num < N_th_Recall:
+                    # 保留99%的有效数据
+                    break
+                else:
+                    y_N_hat.pop()
+                    y_P_hat.pop()
+        return len(y_N_hat)/y_N_num, (y_P_num - len(y_P_hat))/y_P_num, max(y_N_hat)
 
 class DatasetLabel(Dataset):
     def __init__(self, paths):
@@ -192,9 +177,9 @@ class DatasetLabel2(Dataset):
         long    = float(words[2]) / 360         # 经度
         sst     = (float(words[3]) + 33) / 83   # 海表温度(-33 ~ 50)
         if len(words) > 4:                      # 质控符
-            qcs = [0, 1]
+            qcs = [0, 1]    # 阳性
         else:
-            qcs = [1, 0]
+            qcs = [1, 0]    # 阴性
 
         return year, mon, day, hour, min, lat, long, sst, qcs 
 
@@ -255,25 +240,23 @@ class LSTMNetwork(nn.Module):
     def __init__(self,
         input_dim: int,
         hidden_dim: int,
-        output_dim: int,
-        num_layers: int = 2):
+        output_dim: int):
         super(LSTMNetwork, self).__init__()
         
-        self.num_layers = num_layers
         self.hidden_dim = hidden_dim
-        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=2, batch_first=True)
+        self.lstm = nn.LSTM(input_dim, hidden_dim)
         self.net = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, output_dim)
         )
     
-    def forward(self, data):
-        h0 = torch.zeros(self.num_layers, data.size(0), self.hidden_dim)
-        c0 = torch.zeros(self.num_layers, data.size(0), self.hidden_dim)
+    def forward(self, data, device):
+        h0 = torch.zeros(1, self.hidden_dim).to(device)
+        c0 = torch.zeros(1, self.hidden_dim).to(device)
 
         out1, _ = self.lstm(data, (h0, c0))
-        out2 = self.net(out1[:, -1, :])
+        out2 = self.net(out1)
         return out2
     
     def save(self, path: str = ''):
@@ -281,7 +264,6 @@ class LSTMNetwork(nn.Module):
             torch.save(self.state_dict(), path)
         else:
             torch.save(self.state_dict(), 'temp.pt')
-
 
 class NormalNetwork(nn.Module):
     def __init__(self,
